@@ -19,7 +19,7 @@ To design and implement a sharded database system for efficiently ingesting logs
 
 | File | Description |
 |------|-------------|
-| `1_E-R_Diagram.pdf` | ER diagram and functional dependencies |
+| `1_ERD_Schema_FDs.pdf` | ER diagram, Relational Schema and functional dependencies |
 | `2_DDL_Script.txt` | SQL script to create all tables and schema |
 | `3_INSERT_Script.txt` | Sample data for logs across all log types |
 | `4_Queries.txt` | Analytical SQL queries for key use cases |
