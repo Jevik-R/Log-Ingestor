@@ -1,0 +1,351 @@
+-- QUERIES :
+
+-- 1) Write an SQL query to evaluate the health status of servers based on disk space usage, memory space usage, CPU utilization, and temperature. The health status should be classified as 'Good' if disk space and memory usage are less than 60%, CPU utilization is less than 60%, and temperature is below 80°C; 'Moderate' if disk space and memory usage are below 85%, CPU utilization is less than 85%, and temperature is below 85°C; and 'Bad' if none of these conditions are met. Do it for Server1.
+
+SELECT
+    TimestampSL1,
+    Disk_Space_Usage,
+    Memory_Space_Usage,
+    CPU_Utilization,
+    Temperature,
+    
+    CASE
+        WHEN
+            (Disk_Space_Usage * 1.0 / 1048576) < 0.6 AND
+            (Memory_Space_Usage * 1.0 / 2097152) < 0.6 AND
+            REPLACE(CPU_Utilization, ' %', '')::numeric < 60 AND
+            REPLACE(Temperature, ' °C', '')::numeric < 80
+        THEN 'Good'
+        
+        WHEN
+            (Disk_Space_Usage * 1.0 / 1048576) < 0.85 AND
+            (Memory_Space_Usage * 1.0 / 2097152) < 0.85 AND
+            REPLACE(CPU_Utilization, ' %', '')::numeric < 85 AND
+            REPLACE(Temperature, ' °C', '')::numeric < 85
+        THEN 'Moderate'
+        
+        ELSE 'Bad'
+    END AS server_health_status
+
+FROM Server_ID_1_Server_Logs;
+
+-- =================================================================================================================================================================  
+
+-- 2) Analyze the server traffic patterns for Server 2 by determining the frequency of application log requests grouped by each hour of the day. Identify the time periods with the highest traffic and classify each hour as either 'Peak' or 'Normal' based on whether its request count significantly exceeds the average hourly traffic (defined as more than two standard deviations above the mean).
+
+WITH HourlyTraffic AS (
+    SELECT
+        DATE_PART('hour', TimestampAL2) AS hour_of_day,
+        COUNT(*) AS total_requests
+    FROM LOG_INGESTOR.Server_ID_2_Application_Logs
+    GROUP BY hour_of_day
+),
+PeakTraffic AS (
+    SELECT * FROM HourlyTraffic
+    ORDER BY total_requests DESC
+    LIMIT 1
+)
+SELECT
+    H.hour_of_day,
+    H.total_requests,
+    CASE
+        WHEN H.hour_of_day BETWEEN 6 AND 11 THEN 'Morning'
+        WHEN H.hour_of_day BETWEEN 12 AND 17 THEN 'Afternoon'
+        WHEN H.hour_of_day BETWEEN 18 AND 23 THEN 'Evening'
+        ELSE 'Night'
+    END AS time_period,
+    CASE
+        WHEN H.total_requests >= (
+            SELECT AVG(total_requests) + 2 * STDDEV(total_requests) FROM HourlyTraffic
+        ) THEN 'Peak'
+        ELSE 'Normal'
+    END AS traffic_status
+FROM HourlyTraffic H
+ORDER BY H.total_requests DESC;
+
+-- =================================================================================================================================================================  
+
+-- 3) Write an SQL Query to identify the timestamp during which the crash in system happened.
+
+SELECT 
+    '1' AS Server,
+    TimestampPL1, 
+    MessagePL1
+FROM Server_ID_1_Production_Logs
+WHERE LOWER(MessagePL1) LIKE '%failure%' 
+   OR LOWER(MessagePL1) LIKE '%crash%' 
+   OR LOWER(MessagePL1) LIKE '%error%'
+
+UNION ALL
+
+SELECT 
+    '2' AS Server,
+    TimestampPL2, 
+    MessagePL2
+FROM Server_ID_2_Production_Logs
+WHERE LOWER(MessagePL2) LIKE '%failure%' 
+   OR LOWER(MessagePL2) LIKE '%crash%' 
+   OR LOWER(MessagePL2) LIKE '%error%'
+
+UNION ALL
+
+SELECT 
+    '3' AS Server,
+    TimestampPL3, 
+    MessagePL3
+FROM Server_ID_3_Production_Logs
+WHERE LOWER(MessagePL3) LIKE '%failure%' 
+   OR LOWER(MessagePL3) LIKE '%crash%' 
+   OR LOWER(MessagePL3) LIKE '%error%'
+ORDER BY TimestampPL1 DESC;
+
+-- =================================================================================================================================================================  
+
+
+-- 4) Write an SQL Query to find total Cost of all three servers in a fixed duration (eg. between 2025-03-01 00:00:00 AND 2025-03-31 23:59:59) - Server wise within range of time.
+
+WITH AllLogs AS (
+	SELECT Server_ID, Startup, Shutdown, Cost FROM Server_ID_1_Logs
+	UNION ALL
+	SELECT Server_ID, Startup, Shutdown, Cost FROM Server_ID_2_Logs
+	UNION ALL
+	SELECT Server_ID, Startup, Shutdown, Cost FROM Server_ID_3_Logs
+)
+SELECT
+	C.Server_ID,
+	C.IP_Address,
+	C.Location,
+	SUM(A.Cost) AS total_cost,
+	COUNT(*) AS total_sessions,
+	MIN(A.Startup) AS first_session,
+	MAX(A.Shutdown) AS last_session
+FROM AllLogs A
+JOIN Cluster_Table C ON A.Server_ID = C.Server_ID
+WHERE A.Startup BETWEEN '2025-03-01 00:00:00' AND '2025-03-31 23:59:59'
+GROUP BY C.Server_ID, C.IP_Address, C.Location
+ORDER BY total_cost DESC;
+
+-- =================================================================================================================================================================  
+
+-- 5) Write SQL Query to find the Client IP Address who has possibly done the brute-force attack on the system.
+
+SELECT
+    s1.Client_IP_AddressSCL1,
+    COUNT(*) AS Attempt_Count,
+    MIN(s1.TimestampSCL1) AS First_Attempt,
+    MAX(s1.TimestampSCL1) AS Last_Attempt
+FROM
+    Server_ID_2_Security_Logs s1
+WHERE
+    (s1.Security_Level LIKE '%suspicious%'
+    OR s1.Security_Level LIKE '%blocked%')
+    AND s1.End_PointSCL1 IN ('/login', '/admin')
+GROUP BY
+    s1.Client_IP_AddressSCL1,
+    DATE_TRUNC('minute', s1.TimestampSCL1)
+HAVING
+    COUNT(*) >= 3  -- threshold for brute force
+ORDER BY
+    Attempt_Count DESC;
+
+-- =================================================================================================================================================================  
+
+-- 6) Write SQL Query to identify IP addresses that accessed multiple servers within the same one-hour time window.
+
+WITH Combined_Logs AS (
+  SELECT
+    Client_IP_AddressAL1 AS ip,
+    DATE_TRUNC('hour', TimestampAL1) AS hour_window,
+    'Server_1' AS server
+  FROM LOG_INGESTOR.Server_ID_1_Application_Logs
+
+  UNION ALL
+
+  SELECT
+    Client_IP_AddressAL2 AS ip,
+    DATE_TRUNC('hour', TimestampAL2) AS hour_window,
+    'Server_2' AS server
+  FROM LOG_INGESTOR.Server_ID_2_Application_Logs
+
+  UNION ALL
+
+  SELECT
+    Client_IP_AddressAL3 AS ip,
+    DATE_TRUNC('hour', TimestampAL3) AS hour_window,
+    'Server_3' AS server
+  FROM LOG_INGESTOR.Server_ID_3_Application_Logs
+),
+
+IP_Access_Counts AS (
+  SELECT
+    ip,
+    hour_window,
+    COUNT(DISTINCT server) AS servers_accessed
+  FROM Combined_Logs
+  GROUP BY ip, hour_window
+)
+
+SELECT
+  ip,
+  hour_window,
+  servers_accessed
+FROM IP_Access_Counts
+WHERE servers_accessed >= 2
+ORDER BY hour_window, ip;
+
+-- =================================================================================================================================================================  
+
+
+-- 7) Determine the average system uptime (in hours) for each server (Server_ID_1, Server_ID_2, and Server_ID_3).
+
+SELECT Server_ID, AVG(EXTRACT(EPOCH FROM (Shutdown - Startup))/3600) AS Avg_Uptime_Hours
+FROM (
+    SELECT * FROM Server_ID_1_Logs WHERE Shutdown IS NOT NULL
+    UNION ALL
+    SELECT * FROM Server_ID_2_Logs WHERE Shutdown IS NOT NULL
+    UNION ALL
+    SELECT * FROM Server_ID_3_Logs WHERE Shutdown IS NOT NULL
+) AS all_logs
+GROUP BY Server_ID;
+
+-- =================================================================================================================================================================  
+
+
+-- 8) Join Application and Security Logs to Correlate API Access with Security
+
+SELECT
+  al3.Client_IP_AddressAL3,
+  al3.End_PointAL3,
+  al3.TimestampAL3 AS App_Timestamp,
+  sl3.TimestampSCL3 AS Sec_Timestamp,
+  sl3.Security_Level,
+  sl3.Event_TypeSCL3
+FROM Server_ID_3_Application_Logs al3
+JOIN Server_ID_3_Security_Logs sl3
+  ON al3.Client_IP_AddressAL3 = sl3.Client_IP_AddressSCL3
+  AND al3.Startup = sl3.Startup
+  AND EXTRACT(EPOCH FROM sl3.TimestampSCL3) >= EXTRACT(EPOCH FROM al3.TimestampAL3)
+  AND EXTRACT(EPOCH FROM sl3.TimestampSCL3) <= EXTRACT(EPOCH FROM al3.TimestampAL3) + 600
+WHERE sl3.Security_Level = 'High'
+ORDER BY al3.Client_IP_AddressAL3, App_Timestamp;
+
+-- =================================================================================================================================================================  
+
+-- 9) What is the average resource usage (CPU, memory, and disk) per startup session for Server_ID_3, and which sessions had the highest average CPU utilization?
+ 
+SELECT 
+  sl.Startup,
+  COUNT(*) AS Entry_Count,
+  ROUND(AVG(CAST(REPLACE(CPU_Utilization, '%', '') AS FLOAT)), 2) AS Avg_CPU_Utilization,
+  ROUND(AVG(Memory_Space_Usage), 2) AS Avg_Memory_Usage,
+  ROUND(AVG(Disk_Space_Usage), 2) AS Avg_Disk_Usage
+FROM Server_ID_3_Server_Logs sl
+GROUP BY sl.Startup
+ORDER BY Avg_CPU_Utilization DESC;
+
+-- =================================================================================================================================================================  
+
+-- 10) Detect Rapid Spikes in CPU Utilization or Memory Usage Within 5-Minute Sliding Windows. Parameter for spikes is 15% increment in CPU_Utilization and Memory Usage increase more than 500 MB.
+
+SELECT 
+  curr.Startup,
+  curr.TimestampSL3 AS Current_Time,
+  prev.TimestampSL3 AS Previous_Time,
+  CAST(REPLACE(curr.CPU_Utilization, '%', '') AS FLOAT) - 
+    CAST(REPLACE(prev.CPU_Utilization, '%', '') AS FLOAT) AS CPU_Spike,
+  prev.Memory_Space_Usage - curr.Memory_Space_Usage AS Mem_Drop
+FROM 
+  Server_ID_3_Server_Logs curr
+JOIN 
+  Server_ID_3_Server_Logs prev 
+    ON curr.Startup = prev.Startup
+   AND curr.TimestampSL3 > prev.TimestampSL3
+   AND curr.TimestampSL3 - prev.TimestampSL3 <= INTERVAL '5 minutes'
+WHERE 
+  CAST(REPLACE(curr.CPU_Utilization, '%', '') AS FLOAT) - 
+    CAST(REPLACE(prev.CPU_Utilization, '%', '') AS FLOAT) > 15
+  OR curr.Memory_Space_Usage - prev.Memory_Space_Usage > 512000
+ORDER BY 
+  curr.Startup, curr.TimestampSL3;
+
+-- =================================================================================================================================================================  
+
+
+-- 11) List all requests that returned error codes (4xx or 5xx) in production log
+WITH AllProductionLogs AS (
+	SELECT TimestampPL1 AS timestamp, Status_codePL1 AS status_code, MessagePL1, Developer_ID, Process_ID, Startup
+	FROM Server_ID_1_Production_Logs
+	JOIN Server_ID_1_Logs USING (Startup)
+
+	UNION ALL
+
+	SELECT TimestampPL2 AS timestamp, Status_codePL2 AS status_code, MessagePL2, Developer_ID, Process_ID, Startup
+	FROM Server_ID_2_Production_Logs
+	JOIN Server_ID_2_Logs USING (Startup)
+
+	UNION ALL
+
+	SELECT TimestampPL3 AS timestamp, Status_codePL3 AS status_code, MessagePL3, Developer_ID, Process_ID, Startup
+	FROM Server_ID_3_Production_Logs
+	JOIN Server_ID_3_Logs USING (Startup)
+)
+
+SELECT
+	timestamp,
+	status_code,
+	MessagePL1 AS error_message,
+	Developer_ID,
+	Process_ID
+FROM AllProductionLogs
+WHERE status_code BETWEEN 400 AND 599
+ORDER BY timestamp DESC;
+
+-- =================================================================================================================================================================  
+
+
+-- 12) Detect frequent restarts (more than 2 in a single day)
+SELECT 
+  Server_ID,
+  DATE(Startup) AS Restart_Date,
+  COUNT(*) AS Restart_Count
+FROM 
+  LOG_INGESTOR.Server_ID_3_Logs
+GROUP BY 
+  Server_ID, DATE(Startup)
+HAVING 
+  COUNT(*) > 2
+ORDER BY 
+  Restart_Count DESC;
+
+-- =================================================================================================================================================================  
+
+
+-- 13) Most Frequently Accessed Endpoints Ordered
+
+SELECT
+	End_PointAL1,
+	COUNT(*) AS Hit_Count
+FROM
+	Server_ID_1_Application_Logs
+GROUP BY
+	End_PointAL1
+ORDER BY
+	Hit_Count DESC;
+
+-- =================================================================================================================================================================  
+
+-- 14) Developers with Most Errors in Production
+
+SELECT
+	Developer_ID,
+	COUNT(*) AS Error_Count
+FROM
+	Server_ID_1_Production_Logs
+WHERE
+	Status_codePL1 BETWEEN 400 AND 599
+GROUP BY
+	Developer_ID
+ORDER BY
+	Error_Count DESC;
+
+-- =================================================================================================================================================================  
