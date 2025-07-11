@@ -19,10 +19,10 @@ To design and implement a sharded database system for efficiently ingesting logs
 
 | File | Description |
 |------|-------------|
-| `DDL_Script.txt` | SQL script to create all tables and schema |
-| `INSERT_Script.txt` | Sample data for logs across all log types |
-| `Queries.txt` | Analytical SQL queries for key use cases |
-| `E-R_Diagram.pdf` | ER diagram and functional dependencies |
+| `1_E-R_Diagram.pdf` | ER diagram and functional dependencies |
+| `2_DDL_Script.txt` | SQL script to create all tables and schema |
+| `3_INSERT_Script.txt` | Sample data for logs across all log types |
+| `4_Queries.txt` | Analytical SQL queries for key use cases |
 | `Report.pdf` | Full project report with objectives, formats, and use cases |
 
 ## Use Case Scenarios
